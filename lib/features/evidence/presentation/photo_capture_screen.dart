@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/kigo_theme.dart';
+import '../../../shared/widgets/journey_stepper.dart';
 import '../../../shared/widgets/kigo_loader.dart';
 import '../../identity/domain/identity_service_provider.dart';
 import '../../identity/domain/face_verification_service.dart';
@@ -136,7 +137,7 @@ class _PhotoCaptureScreenState extends ConsumerState<PhotoCaptureScreen> {
               const SizedBox(height: 16),
 
               // Step indicator
-              const _StepIndicator(currentStep: 2, totalSteps: 3),
+              const JourneyStepper(current: JourneyStep.photo),
 
               const SizedBox(height: 24),
 
@@ -395,33 +396,6 @@ class _PhotoCaptureScreenState extends ConsumerState<PhotoCaptureScreen> {
             child: Text(result.errorMessage ?? 'Error de validación', style: TextStyle(color: KigoTheme.red500, fontSize: 11)),
           ),
       ],
-    );
-  }
-}
-
-class _StepIndicator extends StatelessWidget {
-  final int currentStep;
-  final int totalSteps;
-
-  const _StepIndicator({required this.currentStep, required this.totalSteps});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(totalSteps, (index) {
-        final isActive = index < currentStep;
-        final isCurrent = index == currentStep - 1;
-        return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: isCurrent ? 24 : 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: isActive ? KigoTheme.kigo500 : KigoTheme.umbral200,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        );
-      }),
     );
   }
 }

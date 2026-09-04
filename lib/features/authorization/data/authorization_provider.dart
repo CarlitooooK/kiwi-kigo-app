@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/config/env_config.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/data/journey_repository.dart';
 import '../../../core/data/organization_repository.dart';
+import '../../../core/services/kigo_host_notifier.dart';
 import '../../../core/supabase/supabase_provider.dart';
 import '../domain/access_policy.dart';
 
@@ -126,10 +128,33 @@ class AuthorizationNotifier extends StateNotifier<AuthorizationState> {
           eventType: 'ACCESS_REQUESTED',
           payload: {'reason': decision.reason},
         );
+
+        // Real push to the host via Kigo Notifications API v2.
+        // For the demo we target a fixed test user (EnvConfig) so the push
+        // lands on a real Kigo app. Non-blocking: waiting still works via
+        // polling even if the push fails.
+        final visitor = visitData['visitors'] as Map<String, dynamic>?;
+        final visitorName =
+            '${visitor?['first_name'] ?? ''} ${visitor?['last_name'] ?? ''}'
+                .trim();
+        final notifyResult =
+            await _ref.read(kigoHostNotifierProvider).notifyVisitorWaiting(
+                  hostLegacyUserId: EnvConfig.testHostLegacyUserId,
+                  visitorName: visitorName,
+                  visitId: visitId,
+                  area: visitData['area'] as String?,
+                  purpose: visitData['purpose'] as String?,
+                );
+
         await journeyRepo.logEvent(
           visitId: visitId,
           eventType: 'HOST_NOTIFIED',
-          payload: {'host_id': visitData['host_id']},
+          payload: {
+            'host_id': visitData['host_id'],
+            'channel': 'KIGO_PUSH',
+            'push_sent': notifyResult.sent,
+            if (notifyResult.error != null) 'push_error': notifyResult.error,
+          },
         );
 
         state = state.copyWith(

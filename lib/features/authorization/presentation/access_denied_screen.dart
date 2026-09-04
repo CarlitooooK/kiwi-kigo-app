@@ -1,19 +1,44 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/sound_service.dart';
+import '../../../core/services/f10_door_service.dart';
 import '../../../core/theme/kigo_theme.dart';
 
 /// Access Denied Screen — Shown when host rejects or policy denies.
 ///
 /// IMPORTANT: Do NOT use aggressive language or make the visitor feel criminal.
-class AccessDeniedScreen extends StatelessWidget {
+class AccessDeniedScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? visitData;
 
   const AccessDeniedScreen({super.key, this.visitData});
 
   @override
+  ConsumerState<AccessDeniedScreen> createState() => _AccessDeniedScreenState();
+}
+
+class _AccessDeniedScreenState extends ConsumerState<AccessDeniedScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Error cue + RED LED when the denial screen appears.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(soundServiceProvider).playError();
+      ref.read(f10DoorServiceProvider).setLedColor(F10LedColor.red, brightness: 200);
+    });
+  }
+
+  @override
+  void dispose() {
+    // Turn the LED off when leaving the denial screen.
+    ref.read(f10DoorServiceProvider).ledOff();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final hostName =
-        (visitData?['profiles'] as Map<String, dynamic>?)?['full_name'] ?? '';
+        (widget.visitData?['profiles'] as Map<String, dynamic>?)?['full_name'] ?? '';
 
     return Scaffold(
       body: SafeArea(

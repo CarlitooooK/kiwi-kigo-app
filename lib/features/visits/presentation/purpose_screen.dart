@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/kigo_theme.dart';
+import '../../../shared/widgets/journey_stepper.dart';
 
 /// Purpose type card data.
 class _PurposeType {
@@ -58,7 +59,11 @@ const _purposes = [
 
 /// Purpose Screen — Grid of visit type cards. Step 1 of guided registration.
 class PurposeScreen extends StatelessWidget {
-  const PurposeScreen({super.key});
+  /// Optional prefilled data (e.g. from face recognition of an enrolled
+  /// visitor). Carried forward so identity/context screens can autofill.
+  final Map<String, dynamic>? flowData;
+
+  const PurposeScreen({super.key, this.flowData});
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +93,10 @@ class PurposeScreen extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+
+              // Journey progress
+              const JourneyStepper(current: JourneyStep.data),
               const SizedBox(height: 24),
 
               // Title
@@ -126,6 +135,7 @@ class PurposeScreen extends StatelessWidget {
                       purpose: purpose,
                       onTap: () {
                         context.push('/kiosk/identity', extra: {
+                          ...?flowData,
                           'visitor_type': purpose.id,
                         });
                       },

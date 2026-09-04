@@ -46,3 +46,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Telpo F10 SDK reference material (vendor docs/demo/APK — not project code).
+# The bits we actually need to build are committed under android/app/{libs,jniLibs}.
+F10SDK/
+F10SDK_20220623.zip

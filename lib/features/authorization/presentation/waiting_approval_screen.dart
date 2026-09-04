@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/supabase/supabase_provider.dart';
+import '../../../core/config/env_config.dart';
+import '../../../core/data/journey_repository.dart';
+import '../../../core/services/kigo_host_notifier.dart';
 import '../../../core/theme/kigo_theme.dart';
 import '../data/authorization_provider.dart';
 
@@ -23,6 +26,10 @@ class _WaitingApprovalScreenState extends ConsumerState<WaitingApprovalScreen>
   Timer? _pollingTimer;
   int _elapsedSeconds = 0;
   bool _hasEvaluated = false;
+  bool _reminding = false; // guards the "remind host" button
+  int _cooldownRemaining = 0; // seconds left before host can be reminded again
+  Timer? _cooldownTimer;
+  static const _remindCooldownSeconds = 30;
   late AnimationController _pulseController;
 
   static const _timeoutSeconds = 300; // 5 minutes
@@ -44,6 +51,7 @@ class _WaitingApprovalScreenState extends ConsumerState<WaitingApprovalScreen>
   void dispose() {
     _timeoutTimer?.cancel();
     _pollingTimer?.cancel();
+    _cooldownTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -54,6 +62,68 @@ class _WaitingApprovalScreenState extends ConsumerState<WaitingApprovalScreen>
 
     final notifier = ref.read(authorizationProvider.notifier);
     await notifier.evaluate(widget.visitData!);
+  }
+
+  /// Re-sends the push to the host as a reminder (same Kigo Notifications API
+  /// used on the first notification). Non-blocking to the polling flow.
+  Future<void> _remindHost() async {
+    if (_reminding || _cooldownRemaining > 0) return;
+    final visitData = widget.visitData;
+    final visitId = visitData?['id'] as String?;
+    if (visitId == null) return;
+
+    setState(() => _reminding = true);
+
+    final visitor = visitData?['visitors'] as Map<String, dynamic>?;
+    final visitorName =
+        '${visitor?['first_name'] ?? ''} ${visitor?['last_name'] ?? ''}'.trim();
+
+    final result = await ref.read(kigoHostNotifierProvider).notifyVisitorWaiting(
+          hostLegacyUserId: EnvConfig.testHostLegacyUserId,
+          visitorName: visitorName,
+          visitId: visitId,
+          area: visitData?['area'] as String?,
+          purpose: visitData?['purpose'] as String?,
+        );
+
+    // Record the reminder in the journey (visible in the console timeline).
+    await ref.read(journeyRepositoryProvider).logEvent(
+      visitId: visitId,
+      eventType: 'HOST_NOTIFIED',
+      payload: {
+        'channel': 'KIGO_PUSH',
+        'reminder': true,
+        'push_sent': result.sent,
+        if (result.error != null) 'push_error': result.error,
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _reminding = false);
+    if (result.sent) _startRemindCooldown();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.sent
+            ? 'Recordatorio enviado al anfitrión'
+            : 'No se pudo enviar el recordatorio. Intenta de nuevo.'),
+        backgroundColor: result.sent ? null : KigoTheme.red500,
+      ),
+    );
+  }
+
+  /// Blocks the remind button for a cooldown window so a visitor can't spam the
+  /// host with pushes. Shows a live countdown on the button.
+  void _startRemindCooldown() {
+    _cooldownTimer?.cancel();
+    setState(() => _cooldownRemaining = _remindCooldownSeconds);
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() => _cooldownRemaining--);
+      if (_cooldownRemaining <= 0) timer.cancel();
+    });
   }
 
   void _startWaiting() {
@@ -331,15 +401,22 @@ class _WaitingApprovalScreenState extends ConsumerState<WaitingApprovalScreen>
 
         // Contact host option
         OutlinedButton.icon(
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Notificación enviada al anfitrión'),
-              ),
-            );
-          },
-          icon: const Icon(Icons.notifications_active_outlined, size: 18),
-          label: const Text('Recordar al anfitrión'),
+          onPressed:
+              (_reminding || _cooldownRemaining > 0) ? null : _remindHost,
+          icon: _reminding
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.notifications_active_outlined, size: 18),
+          label: Text(
+            _reminding
+                ? 'Enviando…'
+                : _cooldownRemaining > 0
+                    ? 'Espera ${_cooldownRemaining}s'
+                    : 'Recordar al anfitrión',
+          ),
         ),
 
         const SizedBox(height: 12),

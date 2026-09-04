@@ -3,19 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/data/visit_repository.dart';
 import '../../../core/data/journey_repository.dart';
+import '../../../core/config/env_config.dart';
+import '../../../core/utils/simulated_data.dart';
+import '../../../core/utils/kiosk_input_formatters.dart';
 import '../../../core/theme/kigo_theme.dart';
+import '../../../shared/widgets/journey_stepper.dart';
 import '../../../shared/widgets/kigo_loader.dart';
 
-/// Context Screen — Step 3: All visit details.
-/// Fields adapt per visitor type but ALL relevant info is collected.
-///
-/// Per type:
-/// - CLIENT: empresa (req), email, teléfono, asunto, área, anfitrión
-/// - PROVIDER: empresa (req), teléfono, servicio a realizar, área, anfitrión
-/// - MAINTENANCE: empresa (req), teléfono, trabajo a realizar, área, anfitrión
-/// - DELIVERY: empresa, área, anfitrión (minimal)
-/// - INTERVIEW: email (req), teléfono, posición, área, anfitrión
-/// - VISITOR: empresa, email, teléfono, motivo, área, anfitrión
+/// Context Screen — Step 3: visit details.
+/// Fields adapt per visitor type. We collect phone (real, for WhatsApp), the
+/// purpose/detail by type, and the host. Company, email and destination area
+/// are NOT collected — company/area are simulated at submit; email is dropped.
 class KioskContextScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic>? flowData;
 
@@ -27,27 +25,35 @@ class KioskContextScreen extends ConsumerStatefulWidget {
 }
 
 class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
-  final _companyController = TextEditingController();
-  final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _purposeController = TextEditingController();
-  final _areaController = TextEditingController();
   final _hostController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _isSubmitting = false;
 
   static const _orgId = 'a0000000-0000-0000-0000-000000000001';
 
+  @override
+  void initState() {
+    super.initState();
+    // Prefill from prior data (voice flow captures host/detail/phone).
+    final data = widget.flowData;
+    if (data != null) {
+      _hostController.text = (data['host_name_manual'] as String?) ??
+          (data['host_name'] as String?) ??
+          '';
+      _purposeController.text = (data['detail'] as String?) ?? '';
+      _phoneController.text = (data['phone'] as String?) ?? '';
+    }
+  }
+
   String get _visitorType =>
       widget.flowData?['visitor_type'] as String? ?? 'VISITOR';
 
   @override
   void dispose() {
-    _companyController.dispose();
-    _emailController.dispose();
     _phoneController.dispose();
     _purposeController.dispose();
-    _areaController.dispose();
     _hostController.dispose();
     super.dispose();
   }
@@ -70,31 +76,8 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
     }
   }
 
-  bool get _showCompany => true; // Siempre, excepto control por label
-  String get _companyLabel {
-    switch (_visitorType) {
-      case 'PROVIDER':
-        return 'Empresa proveedora';
-      case 'MAINTENANCE':
-        return 'Empresa de servicio';
-      case 'DELIVERY':
-        return 'Empresa de envío';
-      case 'CLIENT':
-        return 'Tu empresa';
-      case 'INTERVIEW':
-        return 'Empresa (si aplica)';
-      default:
-        return 'Empresa';
-    }
-  }
-
-  bool get _companyRequired =>
-      ['PROVIDER', 'MAINTENANCE', 'CLIENT'].contains(_visitorType);
-
-  bool get _showEmail => ['CLIENT', 'INTERVIEW', 'VISITOR'].contains(_visitorType);
-  bool get _emailRequired => _visitorType == 'INTERVIEW';
-
-  bool get _showPhone => _visitorType != 'DELIVERY';
+  bool get _showPhone => true; // phone is now collected for all types
+  bool get _phoneRequired => _visitorType != 'DELIVERY';
 
   bool get _showPurpose => _visitorType != 'DELIVERY';
   String get _purposeLabel {
@@ -142,12 +125,8 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
         firstName: widget.flowData?['first_name'] ?? '',
         lastName: widget.flowData?['last_name'] ?? '',
         organizationId: _orgId,
-        company: _companyController.text.trim().isNotEmpty
-            ? _companyController.text.trim()
-            : null,
-        email: _emailController.text.trim().isNotEmpty
-            ? _emailController.text.trim()
-            : null,
+        // Simulated company (always Kigo); phone is REAL (WhatsApp). No email.
+        company: SimulatedData.company,
         phone: _phoneController.text.trim().isNotEmpty
             ? _phoneController.text.trim()
             : null,
@@ -162,9 +141,8 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
         purpose: _purposeController.text.trim().isNotEmpty
             ? _purposeController.text.trim()
             : null,
-        area: _areaController.text.trim().isNotEmpty
-            ? _areaController.text.trim()
-            : null,
+        // Destination area is simulated for the demo.
+        area: SimulatedData.randomArea(),
         source: 'KIOSK',
       );
 
@@ -175,6 +153,10 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
           'source': 'KIOSK',
           'visitor_type': _visitorType,
           'host_name_manual': hostName.isNotEmpty ? hostName : null,
+          // Kigo identity of the host (demo: fixed test user; prod: from a host
+          // directory picker). The Kigo mini-app matches this against
+          // kigo.auth.init().userId to confirm the viewer is the right host.
+          'host_kigo_user_id': EnvConfig.testHostLegacyUserId,
         },
       );
 
@@ -242,6 +224,11 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: JourneyStepper(current: JourneyStep.data),
+            ),
             const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -267,60 +254,27 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Company
-                      if (_showCompany) ...[
-                        TextFormField(
-                          controller: _companyController,
-                          textCapitalization: TextCapitalization.words,
-                          decoration: InputDecoration(
-                            labelText: _companyLabel,
-                            prefixIcon: const Icon(Icons.business_outlined),
-                          ),
-                          validator: _companyRequired
-                              ? (v) => v == null || v.trim().isEmpty
-                                  ? 'Este campo es necesario'
-                                  : null
-                              : null,
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-
-                      // Email
-                      if (_showEmail) ...[
-                        TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(
-                            labelText: 'Correo electrónico',
-                            prefixIcon: Icon(Icons.email_outlined),
-                          ),
-                          validator: (v) {
-                            if (_emailRequired && (v == null || v.trim().isEmpty)) {
-                              return 'El correo es necesario';
-                            }
-                            if (v != null && v.trim().isNotEmpty && !RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(v.trim())) {
-                              return 'El formato del correo no es válido';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-
-                      // Phone
+                      // Phone (real — used for WhatsApp). Company/email/area are
+                      // not collected here.
                       if (_showPhone) ...[
                         TextFormField(
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
+                          inputFormatters: KioskInputFormatters.phone,
                           decoration: const InputDecoration(
-                            labelText: 'Teléfono',
-                            prefixIcon: Icon(Icons.phone_outlined),
+                            labelText: 'Celular',
+                            hintText: '10 dígitos',
+                            prefixIcon: Icon(Icons.smartphone_outlined),
                           ),
                           validator: (v) {
-                            if (v != null && v.trim().isNotEmpty) {
-                              final digits = v.replaceAll(RegExp(r'[\s\-\+\(\)]'), '');
-                              if (!RegExp(r'^\d{7,15}$').hasMatch(digits)) {
-                                return 'Ingresa un teléfono válido (7-15 dígitos)';
+                            final raw = (v ?? '').trim();
+                            if (_phoneRequired && raw.isEmpty) {
+                              return 'El celular es necesario';
+                            }
+                            if (raw.isNotEmpty) {
+                              final digits = raw.replaceAll(RegExp(r'[\s\-\+\(\)]'), '');
+                              if (!RegExp(r'^\d{10,15}$').hasMatch(digits)) {
+                                return 'Ingresa un celular válido (10 dígitos)';
                               }
                             }
                             return null;
@@ -334,6 +288,7 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
                         TextFormField(
                           controller: _purposeController,
                           textCapitalization: TextCapitalization.sentences,
+                          inputFormatters: KioskInputFormatters.freeText,
                           decoration: InputDecoration(
                             labelText: _purposeLabel,
                             hintText: _purposeHint.isNotEmpty ? _purposeHint : null,
@@ -343,21 +298,11 @@ class _KioskContextScreenState extends ConsumerState<KioskContextScreen> {
                         const SizedBox(height: 14),
                       ],
 
-                      // Area
-                      TextFormField(
-                        controller: _areaController,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(
-                          labelText: 'Área o piso',
-                          prefixIcon: Icon(Icons.meeting_room_outlined),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
                       // Host — text field, not dropdown
                       TextFormField(
                         controller: _hostController,
                         textCapitalization: TextCapitalization.words,
+                        inputFormatters: KioskInputFormatters.name,
                         decoration: const InputDecoration(
                           labelText: 'Persona a quien visitas',
                           prefixIcon: Icon(Icons.person_outline),

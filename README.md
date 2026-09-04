@@ -1,159 +1,194 @@
-# Kigo Welcome Intelligence — MVP
+# Kigo Welcome Intelligence
 
-Una capa inteligente de recepción y gestión de visitantes para el ecosistema Kigo.
+Kiosko **Self Check-In AI** para el ecosistema Kigo — recepción inteligente de
+visitantes con Trust Score facial on-device, registro por voz, invitaciones,
+entrada rápida por NFC y consola-lite para el anfitrión.
 
-**Segmento:** Corporativo / Oficina  
-**Stack:** Flutter + Supabase  
-**Propuesta:** FEPRO 2026
+**Segmento:** Corporativo / Codekeepers · **Reto:** FEPRO 2026
+**Stack:** Flutter (kiosko) + React/Vite (consola) + Supabase
+
+---
 
 ## Concepto
 
-Kigo Welcome convierte la llegada de un visitante en un Visitor Journey inteligente, contextual, automatizado y trazable.
+Kigo Welcome convierte la llegada de un visitante en un journey inteligente,
+contextual y trazable:
 
 ```
-Invitación → Visita programada → Welcome → Check-in → Identidad
-→ Evidencia → Trust Layer → Access Policy → Autorización → Acceso
-→ Visita activa → Check-out → Visitor Journey
+Invitación / Walk-in → Welcome → (Voz o Táctil) → Aviso de privacidad
+→ Identidad (OCR) → Selfie → Trust Score → Autorización del anfitrión → Acceso
 ```
 
-## Arquitectura
+Rutas alternas: **visita programada** (QR o teléfono), **entrada rápida por NFC**
+(anfitrión), **visitante frecuente** (reconocimiento facial).
 
-```
-┌─────────────────────────────────────────────┐
-│              FLUTTER APP                     │
-├─────────────────────────────────────────────┤
-│  KIOSK (Visitante)  │  CONSOLE (Admin/Host) │
-│         ↓                      ↓            │
-│      Riverpod State Management              │
-│         ↓                      ↓            │
-│      Repositories + Use Cases               │
-│                    ↓                        │
-└────────────────────┼────────────────────────┘
-                     │
-              ┌──────▼──────┐
-              │  SUPABASE   │
-              ├─────────────┤
-              │ Auth        │
-              │ PostgreSQL  │
-              │ Storage     │
-              │ Realtime    │
-              └─────────────┘
-```
+---
 
-## Quick Start
+## Inteligencia Artificial (on-device, $0)
 
-### 1. Prerrequisitos
-- Flutter 3.12+
-- Proyecto Supabase configurado
+- **Reconocimiento facial** — MobileFaceNet (TFLite), embeddings 192-d, coseno.
+- **OCR de identificación** — Google ML Kit Text Recognition.
+- **Detección facial** — Google ML Kit Face Detection.
 
-### 2. Configurar
+El **Trust Score** agregado es una fórmula ponderada (no IA), y el **liveness** de
+un frame es heurística. Ver [`docs/IA_DEL_PROYECTO.md`](docs/IA_DEL_PROYECTO.md)
+para el detalle honesto de qué es IA y qué no.
+
+---
+
+## Documentación
+
+| Documento | Contenido |
+|---|---|
+| [`docs/IA_DEL_PROYECTO.md`](docs/IA_DEL_PROYECTO.md) | IA real vs heurísticas, modelos y costos |
+| [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) | Arquitectura completa y stack tecnológico |
+| [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) | Estado del proyecto y contexto |
+| [`docs/FLUJOS_Y_CASOS_DE_USO.md`](docs/FLUJOS_Y_CASOS_DE_USO.md) | Flujos y casos de uso |
+| [`docs/supabase-schema.sql`](docs/supabase-schema.sql) | Esquema de la base de datos |
+| [`docs/expire_stale_visits.sql`](docs/expire_stale_visits.sql) | Limpieza automática (pg_cron) |
+
+---
+
+## Repositorios
+
+- **Kiosko (este repo):** `github.com/CarlitooooK/kiwi-kigo-app`
+- **Consola/mini-app:** `github.com/CarlitooooK/kigo-kiwi-console`
+  → publicada en `https://carlitooook.github.io/kigo-kiwi-console/`
+
+---
+
+## Requisitos
+
+- **Flutter** 3.44.5 / **Dart** 3.12.2 (kiosko)
+- **Node.js** 18+ y npm (consola)
+- Cuenta **Supabase** con el esquema aplicado (`docs/supabase-schema.sql`,
+  `docs/face_enrollments.sql`, `docs/expire_stale_visits.sql`)
+- Para el kiosko real: dispositivo **Telpo F10** (o cualquier Android para modo degradado)
+
+---
+
+## Instalación — Kiosko (`kiwi_kigo`)
+
 ```bash
-cp .env.example .env
-# Editar .env con tus credenciales de Supabase
-```
-
-### 3. Instalar dependencias
-```bash
+# 1. Dependencias
 flutter pub get
+
+# 2. Variables de entorno: crea el archivo .env en la raíz del proyecto
+cp .env.example .env   # si existe; si no, crea .env con las claves de abajo
+
+# 3. (una vez) genera código de Riverpod/Freezed si hiciste cambios
+dart run build_runner build --delete-conflicting-outputs
+
+# 4. Ejecutar
+flutter run                       # en el dispositivo conectado
+# o compilar el APK
+flutter build apk --debug
 ```
 
-### 4. Ejecutar
+### `.env` requerido (kiosko)
+
+```env
+SUPABASE_URL=https://<tu-proyecto>.supabase.co
+SUPABASE_ANON_KEY=<tu-anon-key>
+
+# Kigo Notifications API v2 (push al anfitrión)
+KIGO_NOTIFICATIONS_BASE_URL=https://api.kigo.pro/notifications
+KIGO_NOTIFICATIONS_API_KEY=<sk_live_...>
+KIGO_NOTIFICATIONS_SUBTYPE_ID=<subtype-id>
+KIGO_TEST_HOST_LEGACY_USER_ID=<legacyUserId del host de prueba>
+
+# Kigo Verify (opcional; desactivado por defecto)
+KIGO_VERIFY_ENABLED=false
+KIGO_VERIFY_BASE_URL=<url>
+KIGO_VERIFY_API_KEY=<kigo_pk_...>
+```
+
+> El `.env` se empaqueta en el APK al compilar — los cambios aplican en el próximo build.
+
+### Notas del Telpo F10
+
 ```bash
-flutter run -d chrome     # Web
-flutter run -d macos      # macOS
-flutter run               # iOS/Android
+# Conexión ADB inalámbrica
+adb connect 192.168.1.72:5555
+
+# NFC (se apaga al reiniciar el dispositivo)
+adb -s 192.168.1.72:5555 shell svc nfc enable
+
+# Micrófono USB (se resetea al reiniciar)
+adb -s 192.168.1.72:5555 shell "tinymix -D 0 'Mic Capture Volume' 16"
+
+# Instalar APK
+adb -s 192.168.1.72:5555 install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
 
-### 5. Console admin
-Acceder a `/console/login` con un usuario creado en Supabase Auth.
+El SDK del F10 (`PosUtil.jar` + `libposutil.so`) ya está incluido en
+`android/app/{libs,jniLibs}` y se resuelve por reflexión solo en el hardware F10.
+En cualquier otro Android la app corre en modo degradado (sin relé/LED/NFC físicos).
 
-## Estructura
+---
+
+## Instalación — Consola (`kigo-console`)
+
+```bash
+cd ../kigo-console          # repo hermano
+
+# 1. Dependencias
+npm install
+
+# 2. Variables de entorno: crea .env.local
+#    VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+
+# 3. Desarrollo local
+npm run dev                 # http://localhost:5173
+
+# 4. Build de producción
+npm run build
+
+# 5. Deploy a GitHub Pages
+npm run deploy              # build + gh-pages -d dist
+```
+
+### Rutas de la consola (HashRouter)
+
+- `#/host` — consola-lite del anfitrión (visitas de hoy, aprobar, auto-aprobación por Trust ≥ 70)
+- `#/invite` — formulario de invitación (genera visita PRE_AUTHORIZED + QR)
+- `#/authorize/:id` — autorización de una visita
+- `#/visit/:id` — detalle de la visita
+
+---
+
+## Base de datos (Supabase)
+
+Aplica en el **SQL Editor** de Supabase, en orden:
+
+1. `docs/supabase-schema.sql` — tablas, estados y RLS.
+2. `docs/face_enrollments.sql` — enrolamiento facial de recurrentes.
+3. `docs/expire_stale_visits.sql` — limpieza automática de visitas fantasma (pg_cron).
+
+---
+
+## Estructura del kiosko
 
 ```
 lib/
+├── app.dart                 # MaterialApp.router
 ├── main.dart
-├── app.dart
-├── core/
-│   ├── config/          → Environment
-│   ├── constants/       → App constants, enums
-│   ├── data/            → Repositories (visit, org, journey)
-│   ├── network/         → Connectivity
-│   ├── router/          → GoRouter + auth guard
-│   ├── services/        → Kigo integration interfaces
-│   ├── supabase/        → Client + auth providers
-│   └── theme/           → Material 3 theme
-├── features/
-│   ├── welcome/         → Kiosk entry point
-│   ├── visits/          → Lookup + Registration
-│   ├── consent/         → Privacy notice
-│   ├── identity/        → ID document capture
-│   ├── evidence/        → Photo + processing
-│   ├── trust/           → TrustScoreService + Mock
-│   ├── authorization/   → AccessPolicy + waiting + decisions
-│   ├── journey/         → Active visit + checkout + completed
-│   └── console/         → Login + Dashboard + Visits + Detail
-└── shared/widgets/      → Reusable components
+├── core/                    # router, services (F10, NFC, sonido), theme, config, supabase
+├── features/                # welcome, visits, voice, consent, identity, evidence,
+│                            # trust, authorization, support (feature-first)
+└── shared/widgets/          # widgets reutilizables (stepper, botón soporte, etc.)
+android/app/
+├── libs/PosUtil.jar         # SDK Telpo F10 (reflexión)
+├── jniLibs/**/libposutil.so # nativo Telpo (todas las ABIs)
+└── src/main/kotlin/.../MainActivity.kt  # puente: relé, LED, NFC, kiosko
+assets/
+├── models/mobilefacenet.tflite   # modelo de IA facial
+├── sounds/                       # cues success/error
+└── brand/                        # logo
 ```
 
-## Flujo del Visitante (Kiosk)
+---
 
-1. **Welcome** → ¿Tiene visita? / Registrarse
-2. **Lookup** → Busca por email/teléfono
-3. **Visit Found** → Muestra datos pre-registrados
-4. **Registration** → Formulario para walk-ins
-5. **Consent** → Aviso de privacidad
-6. **Identity** → Captura de ID (cámara)
-7. **Photo** → Captura de selfie
-8. **Processing** → Upload + Trust evaluation
-9. **Result** → Calidad de registro
-10. **Authorization** → Auto / Host required / Denied
-11. **Checked-in** → Acceso autorizado
-12. **Active Visit** → Timer + journey + contact host
-13. **Checkout** → Confirmación de salida
-14. **Completed** → Resumen + journey timeline
+## Licencia
 
-## Consola de Gestión
-
-- **Login** → Supabase Auth (email/password)
-- **Dashboard** → Stats del día (hoy, activas, pendientes, completadas)
-- **Visitas** → Lista con filtros + búsqueda
-- **Detalle** → Info completa + Trust Score + Journey + Autorizar/Rechazar
-
-## Trust Layer
-
-```
-TrustScoreService (interface)
-├── MockTrustScoreService (MVP)
-└── AiTrustScoreService (futuro)
-
-Evidence → TrustEvaluation → AccessPolicy → AccessDecision
-```
-
-El Trust Score representa **Registration & Evidence Quality**, nunca peligrosidad.
-
-## Supabase Schema
-
-- `organizations` — Configuración del inmueble
-- `profiles` — Usuarios (Admin, Host, Reception)
-- `visitors` — Personas que visitan
-- `visits` — Eventos de visita
-- `visit_evidence` — Fotos de ID y selfie
-- `trust_evaluations` — Score del Trust Layer
-- `access_decisions` — Decisiones de política
-- `visitor_journey_events` — Timeline completa
-- `consent_records` — Registro legal
-
-## Diseño
-
-> ⚠️ El diseño actual es un placeholder con Material 3.
-> Cuando la **Kigo Design Skill** esté disponible, se aplicará como Design System obligatorio.
-
-## Próximos pasos (post-MVP)
-
-- [ ] Integración IA real (AiTrustScoreService)
-- [ ] OCR para identificaciones
-- [ ] Push notifications para anfitriones
-- [ ] Múltiples organizaciones
-- [ ] Configuración de políticas desde consola
-- [ ] Dashboard analytics
-- [ ] Integración con APIs reales de Kigo
+Proyecto de demostración para FEPRO 2026 (Kigo / Parkimovil).

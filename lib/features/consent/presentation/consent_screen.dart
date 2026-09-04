@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/supabase/supabase_provider.dart';
 import '../../../core/data/journey_repository.dart';
 import '../../../core/theme/kigo_theme.dart';
+import '../../../shared/widgets/journey_stepper.dart';
 import '../../../shared/widgets/kigo_loader.dart';
 
 /// Consent Screen — Privacy notice acceptance.
@@ -21,7 +22,12 @@ class ConsentScreen extends ConsumerStatefulWidget {
 
 class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   bool _isProcessing = false;
+  bool _faceConsent = false; // opt-in: recordar rostro para futuras visitas
   static const _consentVersion = '1.0';
+
+  /// True when the visitor was already recognized by face (enrolled before).
+  /// In that case we must NOT offer to enroll again — it's redundant.
+  bool get _alreadyEnrolled => widget.visitData?['_prefill_from_face'] == true;
 
   Future<void> _acceptConsent() async {
     if (_isProcessing) return;
@@ -59,8 +65,11 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
 
       if (!mounted) return;
 
-      // 4. Navigate to identity capture
-      context.push('/identity', extra: widget.visitData);
+      // 4. Navigate to identity capture, carrying the face-enrollment consent.
+      context.push('/identity', extra: {
+        ...?widget.visitData,
+        '_face_consent': _faceConsent,
+      });
     } catch (e) {
       _showError('No se pudo registrar el consentimiento. Intenta de nuevo.');
     } finally {
@@ -76,6 +85,30 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
         backgroundColor: KigoTheme.red500,
       ),
     );
+  }
+
+  /// Visitor declined the privacy notice: mark the visit as CANCELLED (so it
+  /// doesn't linger as a "ghost" PENDING record) and reset the kiosk.
+  Future<void> _declineConsent() async {
+    final visitId = widget.visitData?['id'] as String?;
+    if (visitId != null) {
+      try {
+        final client = ref.read(supabaseProvider);
+        final journeyRepo = ref.read(journeyRepositoryProvider);
+        await client
+            .from('visits')
+            .update({'status': 'CANCELLED'})
+            .eq('id', visitId);
+        await journeyRepo.logEvent(
+          visitId: visitId,
+          eventType: 'CANCELLED',
+          payload: {'reason': 'CONSENT_DECLINED'},
+        );
+      } catch (_) {
+        // Non-critical — still reset the kiosk so the next visitor can start.
+      }
+    }
+    if (mounted) context.go('/');
   }
 
   @override
@@ -111,7 +144,12 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                 ),
               ),
 
-              const SizedBox(height: 48),
+              const SizedBox(height: 16),
+
+              // Journey progress
+              const JourneyStepper(current: JourneyStep.consent),
+
+              const SizedBox(height: 32),
 
               const Icon(
                 Icons.privacy_tip_outlined,
@@ -201,6 +239,66 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                 ),
               ),
 
+              const SizedBox(height: 20),
+
+              // Optional: face enrollment opt-in (Idea 1).
+              // Hidden when the visitor was recognized by face (already enrolled)
+              // — offering to enroll again would be redundant/contradictory.
+              if (!_alreadyEnrolled)
+              GestureDetector(
+                onTap: () => setState(() => _faceConsent = !_faceConsent),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: _faceConsent
+                        ? KigoTheme.kigo500.withValues(alpha: 0.06)
+                        : KigoTheme.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _faceConsent
+                          ? KigoTheme.kigo500.withValues(alpha: 0.5)
+                          : KigoTheme.umbral200,
+                    ),
+                  ),
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _faceConsent
+                            ? Icons.check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
+                        color: _faceConsent ? KigoTheme.kigo500 : KigoTheme.gray400,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Recordar mi rostro',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: KigoTheme.slate900,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Para agilizar tus próximas visitas con reconocimiento facial. Opcional.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w400,
+                                color: KigoTheme.gray500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 32),
 
               // Accept button
@@ -263,7 +361,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
                         TextButton(
                           onPressed: () {
                             Navigator.pop(ctx);
-                            context.go('/');
+                            _declineConsent();
                           },
                           child: const Text(
                             'Cancelar registro',

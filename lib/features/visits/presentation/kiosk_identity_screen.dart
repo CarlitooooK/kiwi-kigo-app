@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/kigo_theme.dart';
+import '../../../core/utils/kiosk_input_formatters.dart';
+import '../../../shared/widgets/journey_stepper.dart';
 
 /// Identity Screen — Step 2: What's your name?
 /// Single question, large inputs, no noise.
@@ -17,6 +19,18 @@ class _KioskIdentityScreenState extends State<KioskIdentityScreen> {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // Prefill from prior data (e.g. the voice flow captured a name and the
+    // visitor chose to correct it here).
+    final data = widget.flowData;
+    if (data != null) {
+      _firstNameController.text = (data['first_name'] as String?) ?? '';
+      _lastNameController.text = (data['last_name'] as String?) ?? '';
+    }
+  }
 
   @override
   void dispose() {
@@ -44,10 +58,16 @@ class _KioskIdentityScreenState extends State<KioskIdentityScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Form(
             key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 16),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 16),
 
                 // Back
                 GestureDetector(
@@ -66,6 +86,10 @@ class _KioskIdentityScreenState extends State<KioskIdentityScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 16),
+
+                // Journey progress
+                const JourneyStepper(current: JourneyStep.data),
                 const SizedBox(height: 32),
 
                 // Question
@@ -93,6 +117,7 @@ class _KioskIdentityScreenState extends State<KioskIdentityScreen> {
                   controller: _firstNameController,
                   autofocus: true,
                   textCapitalization: TextCapitalization.words,
+                  inputFormatters: KioskInputFormatters.name,
                   style: const TextStyle(fontSize: 17),
                   decoration: const InputDecoration(
                     labelText: 'Nombre',
@@ -107,6 +132,7 @@ class _KioskIdentityScreenState extends State<KioskIdentityScreen> {
                 TextFormField(
                   controller: _lastNameController,
                   textCapitalization: TextCapitalization.words,
+                  inputFormatters: KioskInputFormatters.name,
                   style: const TextStyle(fontSize: 17),
                   decoration: const InputDecoration(
                     labelText: 'Apellidos',
@@ -146,7 +172,12 @@ class _KioskIdentityScreenState extends State<KioskIdentityScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-              ],
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),

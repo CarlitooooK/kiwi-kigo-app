@@ -6,7 +6,6 @@ import '../../core/theme/kigo_theme.dart';
 ///
 /// Used in:
 /// - Active Visit screen (kiosk)
-/// - Visit detail in console
 /// - Visit completed screen
 class JourneyTimeline extends StatelessWidget {
   final List<Map<String, dynamic>> events;

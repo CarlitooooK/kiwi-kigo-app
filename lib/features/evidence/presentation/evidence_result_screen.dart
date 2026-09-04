@@ -49,9 +49,15 @@ class EvidenceResultScreen extends StatelessWidget {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
               const Spacer(flex: 2),
 
               // Step indicator
@@ -183,7 +189,12 @@ class EvidenceResultScreen extends StatelessWidget {
               ],
 
               const Spacer(flex: 2),
-            ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),

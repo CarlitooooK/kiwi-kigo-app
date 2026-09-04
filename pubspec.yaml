@@ -24,6 +24,7 @@ dependencies:
   google_fonts: ^6.2.1
   flutter_svg: ^2.0.17
   cached_network_image: ^3.4.1
+  qr_flutter: ^4.1.0
 
   # Camera & Media
   camera: ^0.11.0+2
@@ -31,6 +32,18 @@ dependencies:
   google_mlkit_text_recognition: ^0.13.0
   google_mlkit_face_detection: ^0.11.0
   google_mlkit_commons: ^0.8.1
+  google_mlkit_barcode_scanning: ^0.12.1
+
+  # On-device AI — face embeddings for real Trust Score (AI_V1)
+  tflite_flutter: ^0.11.0
+  image: ^4.3.0
+
+  # On-device voice — guided registration (STT + TTS), no network, $0
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.2.0
+
+  # Sound feedback (success/error cues on the kiosk)
+  audioplayers: ^6.1.0
 
   # Utilities
   intl: ^0.19.0
@@ -44,14 +57,28 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.14
   riverpod_generator: ^2.6.3
   freezed: ^2.5.8
   json_serializable: ^6.9.4
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/models/
+    - assets/sounds/
+    - assets/brand/
     - .env
+
+# App launcher icon (kiosk). Generates all Android densities from the logo.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/brand/logo.png"
+  # The logo already has an orange rounded background; use it as-is.
+  min_sdk_android: 26

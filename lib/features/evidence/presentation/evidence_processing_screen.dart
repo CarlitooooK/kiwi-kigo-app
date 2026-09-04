@@ -7,8 +7,9 @@ import 'package:uuid/uuid.dart';
 import '../../../core/supabase/supabase_provider.dart';
 import '../../../core/data/journey_repository.dart';
 import '../../../core/theme/kigo_theme.dart';
-import '../../../features/trust/data/mock_trust_score_service.dart';
-import '../../identity/domain/identity_service_provider.dart';
+import '../../trust/data/trust_providers.dart';
+import '../../trust/data/face_enrollment_repository.dart';
+import '../../../core/services/kigo_verify_service.dart';
 import '../../../core/utils/string_similarity.dart';
 
 /// Evidence Processing Screen — Fluid animated upload + trust evaluation.
@@ -119,51 +120,42 @@ class _EvidenceProcessingScreenState
       // Step 1 & 2 & 3: Calculate everything first
       _advanceStep(1, 0.3);
 
-      final livenessService = ref.read(faceVerificationServiceProvider);
       final idPath = widget.visitData?['_id_image_path'] as String?;
       final selfiePath = widget.visitData?['_selfie_path'] as String?;
-      
-      // 3.1 Face Comparison
-      double comparisonScore = 0.0;
-      if (idPath != null && selfiePath != null) {
-        comparisonScore = await livenessService.compareFaces(idPath, selfiePath);
-      }
 
-      // 3.2 Name Match
+      // Inputs for the Trust Score engine.
       final ocrScore = (widget.visitData?['_ocr_score'] as num?)?.toDouble() ?? 0.0;
       final livenessScore = (widget.visitData?['_liveness_score'] as num?)?.toDouble() ?? 0.0;
-      
+
       final visitor = widget.visitData?['visitors'] as Map<String, dynamic>?;
       final formName = '${visitor?['first_name'] ?? ''} ${visitor?['last_name'] ?? ''}';
       final ocrData = widget.visitData?['_ocr_data'] as Map<dynamic, dynamic>?;
       final ocrName = ocrData?['name'] as String?;
-      
       final nameMatchScore = StringSimilarity.compare(formName, ocrName);
 
-      // 3.3 Final Aggregated Score
-      double aggregatedScore = (
-        (ocrScore * 0.2) + 
-        (nameMatchScore * 0.3) + 
-        (livenessScore * 0.2) + 
-        (comparisonScore * 0.3)
-      ) * 100;
-
-      // 3.4 Penalty for multiple attempts
       final idAttempts = (widget.visitData?['_id_attempts'] as int?) ?? 1;
       final selfieAttempts = (widget.visitData?['_selfie_attempts'] as int?) ?? 1;
-      
-      // Reduce score by 5% for each extra attempt after the 2nd
-      if (idAttempts > 2) {
-        aggregatedScore -= (idAttempts - 2) * 5.0;
-      }
-      if (selfieAttempts > 2) {
-        aggregatedScore -= (selfieAttempts - 2) * 5.0;
-      }
 
-      if (comparisonScore < 0.2 || ocrScore < 0.1) {
-        aggregatedScore = aggregatedScore * 0.2;
-      }
-      final finalScore = aggregatedScore.clamp(0.0, 100.0);
+      // === Real AI Trust Score (engine AI_V1) ===
+      // Face match is now a genuine MobileFaceNet embedding similarity, not a
+      // landmark-ratio heuristic. The service also blends OCR, name and liveness.
+      final trustService = ref.read(trustScoreServiceProvider);
+      final evaluation = await trustService.evaluate(
+        visitId: visitId,
+        evidenceData: {
+          'id_image_path': idPath,
+          'selfie_path': selfiePath,
+          'ocr_score': ocrScore,
+          'name_match_score': nameMatchScore,
+          'liveness_score': livenessScore,
+          'id_attempts': idAttempts,
+          'selfie_attempts': selfieAttempts,
+        },
+      );
+
+      final finalScore = evaluation.score;
+      final comparisonScore =
+          (evaluation.factors['face_match'] as num?)?.toDouble() ?? 0.0;
 
       // Step 4: Upload and Save everything
       _advanceStep(2, 0.6);
@@ -218,6 +210,24 @@ class _EvidenceProcessingScreenState
             'attempts': selfieAttempts,
           },
         });
+
+        // === Face enrollment (Idea 1) ===
+        // If the visitor consented to face enrollment, index their face for
+        // future visits: on-device embedding (recognition) + Kigo Verify
+        // (registers the face in the real Kigo ecosystem). Non-blocking: any
+        // failure here must NOT stop the access flow.
+        final faceConsent = widget.visitData?['_face_consent'] == true;
+        final visitorId = visitor?['id'] as String?;
+        if (faceConsent && visitorId != null && selfiePath != null) {
+          await _enrollFace(
+            visitId: visitId,
+            visitorId: visitorId,
+            selfiePath: selfiePath,
+            selfieStoragePath: selfieStoragePath,
+            visitorName: formName.trim(),
+            phone: visitor?['phone'] as String?,
+          );
+        }
       }
 
       // Save Trust Evaluation
@@ -226,15 +236,8 @@ class _EvidenceProcessingScreenState
       await client.from('trust_evaluations').insert({
         'visit_id': visitId,
         'score': finalScore,
-        'factors': {
-          'ocr': ocrScore,
-          'name_match': nameMatchScore,
-          'liveness': livenessScore,
-          'face_match': comparisonScore,
-          'id_attempts': idAttempts,
-          'selfie_attempts': selfieAttempts,
-        },
-        'engine': 'MOCK',
+        'factors': evaluation.factors,
+        'engine': evaluation.engine,
       });
 
       await journeyRepo.logEvent(
@@ -246,6 +249,7 @@ class _EvidenceProcessingScreenState
           'comparison_score': comparisonScore,
           'name_match_score': nameMatchScore,
           'final_trust_score': finalScore,
+          'engine': evaluation.engine,
         },
       );
 
@@ -279,19 +283,62 @@ class _EvidenceProcessingScreenState
     }
   }
 
-  int _countFields() {
-    int count = 0;
-    final visitor = widget.visitData?['visitors'] as Map<String, dynamic>?;
-    if (visitor != null) {
-      if (visitor['first_name'] != null) count++;
-      if (visitor['last_name'] != null) count++;
-      if (visitor['company'] != null) count++;
-      if (visitor['email'] != null) count++;
-      if (visitor['phone'] != null) count++;
-    } else {
-      if (widget.visitData?['visitor_id'] != null) count += 2;
+  /// Enrolls the visitor's face for future visits (Idea 1). On-device embedding
+  /// for recognition + Kigo Verify enrollment for the real ecosystem. Fully
+  /// non-blocking: swallows errors so the access flow is never interrupted.
+  Future<void> _enrollFace({
+    required String visitId,
+    required String visitorId,
+    required String selfiePath,
+    String? selfieStoragePath,
+    String? visitorName,
+    String? phone,
+  }) async {
+    try {
+      // 1. On-device embedding (MobileFaceNet) from the captured selfie.
+      final embedder = ref.read(faceEmbedderProvider);
+      final embedding = await embedder.embedFromFile(selfiePath);
+      if (embedding == null) {
+        debugPrint('FaceEnroll: no face embedding produced, skipping');
+        return;
+      }
+
+      // 2. Kigo Verify — register the face in the real Kigo ecosystem.
+      String? kigoId;
+      String? kigoStatus;
+      final verify = ref.read(kigoVerifyServiceProvider);
+      final result = await verify.createEnrollment(
+        externalRef: visitorId,
+        phone: phone,
+        name: visitorName,
+        extraMetadata: {'visit_id': visitId},
+      );
+      if (result.ok) {
+        kigoId = result.enrollmentId;
+        kigoStatus = result.status;
+      }
+
+      // 3. Persist the enrollment (embedding + Kigo ids) for recognition.
+      await ref.read(faceEnrollmentRepositoryProvider).enroll(
+            visitorId: visitorId,
+            embedding: embedding,
+            photoPath: selfieStoragePath,
+            kigoEnrollmentId: kigoId,
+            kigoStatus: kigoStatus,
+          );
+
+      await ref.read(journeyRepositoryProvider).logEvent(
+            visitId: visitId,
+            eventType: 'FACE_ENROLLED',
+            payload: <String, dynamic>{
+              'engine': 'MobileFaceNet',
+              'kigo_verify': result.ok,
+              'kigo_enrollment_id': kigoId,
+            },
+          );
+    } catch (e) {
+      debugPrint('FaceEnroll: non-blocking error: $e');
     }
-    return count;
   }
 
   @override

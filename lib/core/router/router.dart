@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../features/welcome/presentation/welcome_screen.dart';
+import '../../features/welcome/presentation/recurrent_entry_screen.dart';
+import '../../features/welcome/presentation/host_fast_entry_screen.dart';
+import '../../features/support/presentation/support_screen.dart';
 import '../../features/visits/presentation/visit_lookup_screen.dart';
 import '../../features/visits/presentation/visit_found_screen.dart';
 import '../../features/visits/presentation/visitor_registration_screen.dart';
 import '../../features/visits/presentation/purpose_screen.dart';
 import '../../features/visits/presentation/kiosk_identity_screen.dart';
 import '../../features/visits/presentation/kiosk_context_screen.dart';
+import '../../features/voice/presentation/voice_registration_screen.dart';
 import '../../features/consent/presentation/consent_screen.dart';
 import '../../features/identity/presentation/identity_capture_screen.dart';
 import '../../features/evidence/presentation/photo_capture_screen.dart';
@@ -21,11 +24,6 @@ import '../../features/authorization/presentation/access_denied_screen.dart';
 import '../../features/journey/presentation/active_visit_screen.dart';
 import '../../features/journey/presentation/checkout_screen.dart';
 import '../../features/journey/presentation/visit_completed_screen.dart';
-import '../../features/console/presentation/console_login_screen.dart';
-import '../../features/console/presentation/console_shell.dart';
-import '../../features/console/presentation/dashboard_screen.dart';
-import '../../features/console/presentation/visits_screen.dart';
-import '../../features/console/presentation/visit_detail_screen.dart';
 
 /// Kigo motion: slide forward 300ms, back 250ms — smooth cubic
 CustomTransitionPage<void> _slideTransition(Widget child, GoRouterState state) {
@@ -35,31 +33,28 @@ CustomTransitionPage<void> _slideTransition(Widget child, GoRouterState state) {
     transitionDuration: const Duration(milliseconds: 350),
     reverseTransitionDuration: const Duration(milliseconds: 280),
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      // Forward: new screen slides in from right
+      // Forward: this screen slides in from the right when entering.
       final slideIn = Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
           .chain(CurveTween(curve: Curves.easeInOutCubic));
-      // Outgoing: current screen slides slightly left + fades
+      // When another screen covers this one, it slides slightly left + fades.
       final slideOut = Tween(begin: Offset.zero, end: const Offset(-0.3, 0.0))
           .chain(CurveTween(curve: Curves.easeInOutCubic));
       final fadeOut = Tween(begin: 1.0, end: 0.5)
           .chain(CurveTween(curve: Curves.easeIn));
 
-      return Stack(
-        children: [
-          // Outgoing screen
-          SlideTransition(
-            position: secondaryAnimation.drive(slideOut),
-            child: FadeTransition(
-              opacity: secondaryAnimation.drive(fadeOut),
-              child: child,
-            ),
-          ),
-          // Incoming screen
-          SlideTransition(
+      // IMPORTANT: render `child` exactly ONCE. Both the incoming (animation)
+      // and outgoing (secondaryAnimation) motions are composed onto the same
+      // subtree — rendering `child` twice duplicates any GlobalKey it holds
+      // (e.g. Form keys), flooding "Multiple widgets used the same GlobalKey".
+      return SlideTransition(
+        position: secondaryAnimation.drive(slideOut),
+        child: FadeTransition(
+          opacity: secondaryAnimation.drive(fadeOut),
+          child: SlideTransition(
             position: animation.drive(slideIn),
             child: child,
           ),
-        ],
+        ),
       );
     },
   );
@@ -108,12 +103,6 @@ class RoutePaths {
   static const String activeVisit = '/active-visit';
   static const String checkout = '/checkout';
   static const String visitCompleted = '/visit-completed';
-
-  // Console routes (Admin/Host experience)
-  static const String consoleLogin = '/console/login';
-  static const String consoleDashboard = '/console';
-  static const String consoleVisits = '/console/visits';
-  static const String consoleVisitDetail = '/console/visits/:id';
 }
 
 /// Router provider — single instance shared across the app.
@@ -121,23 +110,6 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: RoutePaths.welcome,
     debugLogDiagnostics: true,
-    redirect: (context, state) {
-      final isLoggedIn = Supabase.instance.client.auth.currentUser != null;
-      final isConsoleRoute = state.uri.path.startsWith('/console');
-      final isLoginRoute = state.uri.path == '/console/login';
-
-      // If going to console (not login) and not authenticated → redirect to login
-      if (isConsoleRoute && !isLoginRoute && !isLoggedIn) {
-        return '/console/login';
-      }
-
-      // If on login page and already authenticated → go to dashboard
-      if (isLoginRoute && isLoggedIn) {
-        return '/console';
-      }
-
-      return null;
-    },
     routes: [
       // === KIOSK ROUTES (Visitor) ===
       GoRoute(
@@ -175,7 +147,39 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/kiosk/purpose',
         name: 'kiosk-purpose',
         pageBuilder: (context, state) => _slideTransition(
-          const PurposeScreen(), state,
+          PurposeScreen(flowData: state.extra as Map<String, dynamic>?), state,
+        ),
+      ),
+      // Voice-guided registration (on-device STT/TTS), touch fallback inside.
+      GoRoute(
+        path: '/kiosk/voice',
+        name: 'kiosk-voice',
+        pageBuilder: (context, state) => _slideTransition(
+          const VoiceRegistrationScreen(), state,
+        ),
+      ),
+      // "Ya vengo seguido" — face fast-path for enrolled/recurrent visitors.
+      GoRoute(
+        path: '/recurrent',
+        name: 'recurrent',
+        pageBuilder: (context, state) => _slideTransition(
+          const RecurrentEntryScreen(), state,
+        ),
+      ),
+      // Host NFC fast-entry — recognized host tapped their card on Welcome.
+      GoRoute(
+        path: '/host-entry',
+        name: 'host-entry',
+        pageBuilder: (context, state) => _fadeScaleTransition(
+          HostFastEntryScreen(hostName: state.extra as String?), state,
+        ),
+      ),
+      // Support — QR the visitor scans with the Kigo app to call support.
+      GoRoute(
+        path: '/support',
+        name: 'support',
+        pageBuilder: (context, state) => _slideTransition(
+          const SupportScreen(), state,
         ),
       ),
       GoRoute(
@@ -305,36 +309,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             VisitCompletedScreen(visitData: visitData), state,
           );
         },
-      ),
-      // === CONSOLE ROUTES (Admin/Host) ===
-      GoRoute(
-        path: RoutePaths.consoleLogin,
-        name: 'console-login',
-        builder: (context, state) => const ConsoleLoginScreen(),
-      ),
-      ShellRoute(
-        builder: (context, state, child) => ConsoleShell(child: child),
-        routes: [
-          GoRoute(
-            path: RoutePaths.consoleDashboard,
-            name: 'console-dashboard',
-            builder: (context, state) => const DashboardScreen(),
-          ),
-          GoRoute(
-            path: RoutePaths.consoleVisits,
-            name: 'console-visits',
-            builder: (context, state) => const VisitsScreen(),
-          ),
-          GoRoute(
-            path: RoutePaths.consoleVisitDetail,
-            name: 'console-visit-detail',
-            builder: (context, state) {
-              final id = state.pathParameters['id']!;
-              final data = state.extra as Map<String, dynamic>?;
-              return VisitDetailScreen(visitId: id, initialData: data);
-            },
-          ),
-        ],
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

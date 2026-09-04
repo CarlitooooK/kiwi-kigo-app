@@ -10,8 +10,13 @@ class FaceVerificationService {
     ),
   );
 
-  /// Analyzes a selfie for liveness.
-  /// Returns a score from 0.0 to 1.0.
+  /// Analyzes a selfie for liveness/quality.
+  ///
+  /// True liveness needs multiple frames (blink/turn); with a single capture we
+  /// compute an honest, VARIABLE quality-of-face score from ML Kit signals
+  /// instead of fixed increments (the old version summed constants and always
+  /// hit 1.0). Signals: eyes open, natural head pose, face size/framing, and a
+  /// smile bonus. Returns 0.0–1.0.
   Future<LivenessResult> checkLiveness(String imagePath) async {
     try {
       final inputImage = InputImage.fromFilePath(imagePath);
@@ -20,36 +25,65 @@ class FaceVerificationService {
       if (faces.isEmpty) {
         return LivenessResult.failure('No se detectó ningún rostro');
       }
-
       if (faces.length > 1) {
         return LivenessResult.failure('Se detectó más de un rostro');
       }
 
       final face = faces.first;
-      
-      // Strict liveness checks:
-      // 1. Blinking (if probability is low, it might be an eyes-closed photo or a wink)
-      // 2. Head rotation (if it's perfectly flat, it might be a photo of a photo)
-      
-      double livenessScore = 0.4; // Base score if a single face is found
+      double score = 0.0;
 
-      // Check if eyes are open (or closed, just need classification)
-      if (face.leftEyeOpenProbability != null && face.rightEyeOpenProbability != null) {
-        // Natural blink range is preferred over 100% open or 0% open all the time
-        // but for a single capture, just seeing the probability is good
-        livenessScore += 0.3;
+      // 1) Eyes open (0..0.35). Uses the real probability; closed eyes / a photo
+      //    with half-lidded eyes scores lower. If classification is missing,
+      //    give a small neutral credit.
+      final le = face.leftEyeOpenProbability;
+      final re = face.rightEyeOpenProbability;
+      if (le != null && re != null) {
+        final eyesOpen = ((le + re) / 2).clamp(0.0, 1.0);
+        score += 0.35 * eyesOpen;
+      } else {
+        score += 0.15;
       }
 
-      // 3D Depth Check (Euler Angles)
-      if (face.headEulerAngleY != null && face.headEulerAngleY!.abs() > 0.5) {
-        // Even slight non-perpendicular angle suggests it's not a flat screen/paper
-        livenessScore += 0.3;
+      // 2) Natural head pose (0..0.30). A tiny non-zero angle suggests a real 3D
+      //    head, not a flat photo held perfectly straight; but extreme angles
+      //    (looking away) are penalized. Sweet spot ~2°–18° on Y.
+      final y = face.headEulerAngleY?.abs() ?? 0.0;
+      final z = face.headEulerAngleZ?.abs() ?? 0.0;
+      double poseScore;
+      if (y < 1.0) {
+        poseScore = 0.10; // suspiciously flat (possible photo of a photo)
+      } else if (y <= 18.0) {
+        poseScore = 0.30; // natural
+      } else if (y <= 30.0) {
+        poseScore = 0.18; // turned a bit much
+      } else {
+        poseScore = 0.05; // looking away
+      }
+      if (z > 20.0) poseScore *= 0.6; // heavily tilted → likely bad capture
+      score += poseScore;
+
+      // 3) Face size / framing (0..0.25). A real close selfie fills a good part
+      //    of the frame; a tiny face (photo far away) scores low. We only have
+      //    the bounding box here, so use its area heuristically via landmarks
+      //    spread (eye distance) as a proxy for closeness.
+      final leftEye = face.landmarks[FaceLandmarkType.leftEye]?.position;
+      final rightEye = face.landmarks[FaceLandmarkType.rightEye]?.position;
+      if (leftEye != null && rightEye != null) {
+        final eyeDist = math.sqrt(
+          math.pow(rightEye.x - leftEye.x, 2) + math.pow(rightEye.y - leftEye.y, 2),
+        );
+        // eyeDist grows with closeness. ~60px+ is a good close selfie on the F10.
+        final framing = (eyeDist / 90.0).clamp(0.0, 1.0);
+        score += 0.25 * framing;
+      } else {
+        score += 0.10;
       }
 
-      // Penalty for "too perfect" or "static" if we had multiple frames, 
-      // but for MVP this is the baseline.
+      // 4) Smile bonus (0..0.10) — a natural expression is a mild liveness cue.
+      final smile = face.smilingProbability;
+      if (smile != null) score += 0.10 * smile.clamp(0.0, 1.0);
 
-      return LivenessResult.success(score: livenessScore.clamp(0.0, 1.0));
+      return LivenessResult.success(score: score.clamp(0.0, 1.0));
     } catch (e) {
       return LivenessResult.failure('Error en prueba de vida: $e');
     }

@@ -6,6 +6,12 @@
     <!-- Camera permission for ID/photo capture -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
+    <!-- Microphone for on-device voice-guided registration (speech_to_text) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
+    <!-- NFC for host fast-entry (present card on the Welcome screen) -->
+    <uses-permission android:name="android.permission.NFC"/>
+
     <application
         android:label="kiwi_kigo"
         android:name="${applicationName}"
@@ -47,6 +53,14 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Required so speech_to_text / flutter_tts can find the on-device
+             recognition and TTS engines on Android 11+ (package visibility). -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
 </manifest>

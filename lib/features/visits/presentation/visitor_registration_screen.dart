@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/data/visit_repository.dart';
 import '../../../core/data/journey_repository.dart';
+import '../../../core/utils/kiosk_input_formatters.dart';
 import '../../../core/theme/kigo_theme.dart';
 import '../../../shared/widgets/kigo_loader.dart';
 import '../data/hosts_provider.dart';
@@ -367,6 +368,7 @@ class _VisitorRegistrationScreenState
                           Expanded(
                             child: TextFormField(
                               controller: _firstNameController,
+                              inputFormatters: KioskInputFormatters.name,
                               decoration: const InputDecoration(
                                 labelText: 'Nombre',
                               ),
@@ -380,6 +382,7 @@ class _VisitorRegistrationScreenState
                           Expanded(
                             child: TextFormField(
                               controller: _lastNameController,
+                              inputFormatters: KioskInputFormatters.name,
                               decoration: const InputDecoration(
                                 labelText: 'Apellidos',
                               ),
@@ -397,6 +400,7 @@ class _VisitorRegistrationScreenState
                         const SizedBox(height: 14),
                         TextFormField(
                           controller: _companyController,
+                          inputFormatters: KioskInputFormatters.freeText,
                           decoration: InputDecoration(
                             labelText: config.companyLabel,
                             prefixIcon: const Icon(Icons.business_outlined),
@@ -414,6 +418,7 @@ class _VisitorRegistrationScreenState
                         const SizedBox(height: 14),
                         TextFormField(
                           controller: _emailController,
+                          inputFormatters: KioskInputFormatters.email,
                           decoration: const InputDecoration(
                             labelText: 'Correo electrónico',
                             prefixIcon: Icon(Icons.email_outlined),
@@ -426,6 +431,7 @@ class _VisitorRegistrationScreenState
                         const SizedBox(height: 14),
                         TextFormField(
                           controller: _phoneController,
+                          inputFormatters: KioskInputFormatters.phone,
                           decoration: const InputDecoration(
                             labelText: 'Teléfono',
                             prefixIcon: Icon(Icons.phone_outlined),
@@ -453,6 +459,7 @@ class _VisitorRegistrationScreenState
                           if (hosts.isEmpty) {
                             return TextFormField(
                               controller: _manualHostController,
+                              inputFormatters: KioskInputFormatters.name,
                               decoration: const InputDecoration(
                                 labelText: 'Persona a quien visitas',
                                 prefixIcon: Icon(Icons.person_outline),
@@ -485,6 +492,7 @@ class _VisitorRegistrationScreenState
                           backgroundColor: KigoTheme.umbral100,
                         ),
                         error: (e, st) => TextFormField(
+                          inputFormatters: KioskInputFormatters.name,
                           decoration: const InputDecoration(
                             labelText: 'Persona a quien visitas',
                             prefixIcon: Icon(Icons.person_outline),
@@ -497,6 +505,7 @@ class _VisitorRegistrationScreenState
                         const SizedBox(height: 14),
                         TextFormField(
                           controller: _purposeController,
+                          inputFormatters: KioskInputFormatters.freeText,
                           decoration: InputDecoration(
                             labelText: config.purposeLabel,
                             hintText: config.purposeHint.isNotEmpty
@@ -512,6 +521,7 @@ class _VisitorRegistrationScreenState
                         const SizedBox(height: 14),
                         TextFormField(
                           controller: _areaController,
+                          inputFormatters: KioskInputFormatters.freeText,
                           decoration: const InputDecoration(
                             labelText: 'Área o piso',
                             prefixIcon: Icon(Icons.meeting_room_outlined),
